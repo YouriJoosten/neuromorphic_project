@@ -1,0 +1,3 @@
+[submodule "external/sumo-rl"]
+	path = external/sumo-rl
+	url = https://github.com/LucasAlegre/sumo-rl.git
