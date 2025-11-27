@@ -3,6 +3,7 @@ import os
 import sys
 from datetime import datetime
 
+print(sys.path)
 
 
 if "SUMO_HOME" in os.environ:
@@ -10,9 +11,10 @@ if "SUMO_HOME" in os.environ:
     sys.path.append(tools)
 else:
     sys.exit("Please declare the environment variable 'SUMO_HOME'")
-
+import numpy as np
 
 from sumo_rl import SumoEnvironment
+from sumo_rl.agents import PolicyGradientAgent
 from sumo_rl.agents import QLAgent
 from sumo_rl.exploration import EpsilonGreedy
 
@@ -44,7 +46,7 @@ if __name__ == "__main__":
     prs.add_argument("-runs", dest="runs", type=int, default=1, help="Number of runs.\n")
     args = prs.parse_args()
     experiment_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    out_csv = f"outputs/single-intersection/{experiment_time}_alpha{args.alpha}_gamma{args.gamma}_eps{args.epsilon}_decay{args.decay}"
+    out_csv = f"outputs/single-intersection/PG_{experiment_time}_alpha{args.alpha}_gamma{args.gamma}_eps{args.epsilon}_decay{args.decay}"
 
     env = SumoEnvironment(
         net_file="src/sumo_rl/nets/single-intersection/single-intersection.net.xml",
@@ -56,34 +58,52 @@ if __name__ == "__main__":
         max_green=args.max_green,
     )
 
-    for run in range(1, args.runs + 1):
-        initial_states = env.reset()
-        ql_agents = {
-            ts: QLAgent(
-                starting_state=env.encode(initial_states[ts], ts),
-                state_space=env.observation_space,
-                action_space=env.action_space,
-                alpha=args.alpha,
-                gamma=args.gamma,
-                exploration_strategy=EpsilonGreedy(
-                    initial_epsilon=args.epsilon, min_epsilon=args.min_epsilon, decay=args.decay
-                ),
-            )
-            for ts in env.ts_ids
-        }
+for run in range(1, args.runs + 1):
+    # 1) reset env and get initial states per traffic signal
+    initial_states = env.reset()
 
-        done = {"__all__": False}
-        infos = []
-        if args.fixed:
-            while not done["__all__"]:
-                _, _, done, _ = env.step({})
-        else:
-            while not done["__all__"]:
-                actions = {ts: ql_agents[ts].act() for ts in ql_agents.keys()}
+    # 2) create PG agents (once per run)
+    pg_agents = {}
+    for ts in env.ts_ids:
+        obs = env.encode(initial_states[ts], ts)
+        obs_dim = np.array(obs, dtype=np.float32).flatten().shape[0]
 
-                s, r, done, _ = env.step(action=actions)
+        pg_agents[ts] = PolicyGradientAgent(
+            obs_dim=obs_dim,
+            action_space=env.action_space,   # or env.action_spaces[ts] if that's how your env works
+            lr=1e-3,
+            beta_rew=0.01,
+        )
 
-                for agent_id in ql_agents.keys():
-                    ql_agents[agent_id].learn(next_state=env.encode(s[agent_id], agent_id), reward=r[agent_id])
-        env.save_csv(out_csv, run)
-        env.close()
+    # 3) keep track of current states
+    current_states = initial_states
+
+    done = {"__all__": False}
+    infos = []
+
+    if args.fixed:
+        while not done["__all__"]:
+            _, _, done, _ = env.step({})
+    else:
+        while not done["__all__"]:
+            # --- ACT ---
+            actions = {}
+            for ts, agent in pg_agents.items():
+                obs = env.encode(current_states[ts], ts)
+                actions[ts] = agent.act(obs)
+
+            # --- STEP ENV ---
+            next_states, rewards, done, _ = env.step(action=actions)
+
+            # --- LEARN ---
+            for ts, agent in pg_agents.items():
+                next_obs = env.encode(next_states[ts], ts)
+                done_flag = done.get(ts, done["__all__"])
+                agent.learn(next_state=next_obs, reward=rewards[ts], done=done_flag)
+
+            # --- ADVANCE ---
+            current_states = next_states
+
+    env.save_csv(out_csv, run)
+    env.close()
+
