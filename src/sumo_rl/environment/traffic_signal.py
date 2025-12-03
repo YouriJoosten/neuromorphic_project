@@ -124,7 +124,7 @@ class TrafficSignal:
             else:
                 raise NotImplementedError(f"Reward function {reward_fn} not implemented")
         return reward_fn
-
+    
     def _build_phases(self):
         phases = self.sumo.trafficlight.getAllProgramLogics(self.id)[0].phases
         if self.env.fixed_ts:
@@ -231,6 +231,12 @@ class TrafficSignal:
         reward = self.last_ts_waiting_time - ts_wait
         self.last_ts_waiting_time = ts_wait
         return reward
+    def _total_waiting_time_reward(self):
+        """Negative total accumulated waiting time (per lane)."""
+        wait_per_lane = self.get_accumulated_waiting_time_per_lane()
+        return -sum(wait_per_lane)
+
+
 
     def _observation_fn_default(self):
         phase_id = [1 if self.green_phase == i else 0 for i in range(self.num_green_phases)]  # one-hot encoding
@@ -342,4 +348,6 @@ class TrafficSignal:
         "average-speed": _average_speed_reward,
         "queue": _queue_reward,
         "pressure": _pressure_reward,
+        "total-waiting-time": _total_waiting_time_reward,
     }
+
