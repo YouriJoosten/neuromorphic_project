@@ -19,7 +19,7 @@ sys.path.insert(0, project_src)
 
 from sumo_rl import SumoEnvironment
 from sumo_rl.agents import PolicyGradientAgent
-
+from sumo_rl.environment.traffic_signal import TrafficSignal 
 
 def main():
     prs = argparse.ArgumentParser(
@@ -30,10 +30,10 @@ def main():
         "-route",
         dest="route",
         type=str,
-        default="src/sumo_rl/nets/2way-single-intersection/single-intersection-gen.rou.xml",
+        default="src/sumo_rl/nets/2way-single-intersection/single-intersection-vhvh.rou.xml",
         help="Route definition xml file.",
     )
-    prs.add_argument("-a", dest="alpha", type=float, default=1e-3, help="Alpha learning rate for policy gradient.")
+    prs.add_argument("-a", dest="alpha", type=float, default=1e-2, help="Alpha learning rate for policy gradient.")
     prs.add_argument("-g", dest="gamma", type=float, default=0.99, help="Gamma discount rate.")
     prs.add_argument("-mingreen", dest="min_green", type=int, default=10, help="Minimum green time.")
     prs.add_argument("-maxgreen", dest="max_green", type=int, default=50, help="Maximum green time.")

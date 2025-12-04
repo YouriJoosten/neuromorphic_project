@@ -21,7 +21,6 @@ from sumo_rl import SumoEnvironment
 from sumo_rl.agents import PolicyGradientAgent
 from sumo_rl.environment.traffic_signal import TrafficSignal 
 
-
 def main():
     prs = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,

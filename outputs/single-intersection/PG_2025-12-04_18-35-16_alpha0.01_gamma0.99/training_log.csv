@@ -1,0 +1,2 @@
+run,agent,episode_return,discounted_return,mean_return,R_bar,theta_norm,theta_change,theta_update_norm
+1,t,-576698.0,-150515.75,-213843.71875,-21384.371875,0.23050533400007372,0.20747553014625167,0.20747553014625167
