@@ -77,6 +77,7 @@ def main():
         num_seconds=args.seconds,
         min_green=args.min_green,
         max_green=args.max_green,
+        reward_fn="total-waiting-time",
     )
 
     initial_states = env.reset()
