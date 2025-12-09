@@ -2,12 +2,11 @@ from sumo_rl.exploration.epsilon_greedy import EpsilonGreedy
 import numpy as np
 
 
-class RMHLAgent_Legenstein:
+class RMHLAgent:
     """
     Reward-Modulated Hebbian Agent implementing the Exploratory Hebb (EH) rule
     from Legenstein et al. (2010).
 
-    
 
     where:
       x_j(t)        = presynaptic activity (encoded state feature j)
@@ -31,12 +30,6 @@ class RMHLAgent_Legenstein:
         mean_alpha=0.2,      # low-pass coefficient for ā_i and R̄ (≈ 0.2 in paper)
         noise_base=0.1,      # base noise level on activations
         noise_scale=0.1,     # how much noise grows with |pre-activation|
-        noise_decay=0.999,   # multiplicative decay applied after each update
-        min_noise_gain=0.05, # lower bound for exploration noise gain
-        reward_norm_beta=0.01,   # smoothing for reward variance (for scaling delta_R)
-        reward_clip=5.0,         # clamp scaled delta_R to keep updates stable
-        max_update_norm=5.0,     # clip Hebbian update norm to avoid explosions
-        weight_decay=1e-4,       # small L2-style decay when normalization is off
         normalize_weights=True,
     ):
         self.state = starting_state
@@ -58,21 +51,13 @@ class RMHLAgent_Legenstein:
         self.a_mean = np.zeros(self.action_dim)   # ā_i(t)
         self.R_mean = 0.0                         # R̄(t)
         self.mean_alpha = mean_alpha
-        self.reward_var = 1e-6
-        self.reward_norm_beta = reward_norm_beta
-        self.reward_clip = reward_clip
 
         # Internal noise parameters (exploratory signal)
         self.noise_base = noise_base
         self.noise_scale = noise_scale
-        self.noise_gain = 1.0
-        self.noise_decay = noise_decay
-        self.min_noise_gain = min_noise_gain
 
         # Optional weight normalization (L2 per action column, like Eq. 20)
         self.normalize_weights = normalize_weights
-        self.max_update_norm = max_update_norm
-        self.weight_decay = weight_decay
 
         # Scaling for inputs
         self.state_scale = np.maximum(1.0, np.abs(starting_state))
@@ -112,7 +97,7 @@ class RMHLAgent_Legenstein:
         h = x @ self.W  # shape: (action_dim,)
 
         # Heteroscedastic internal noise (exploration signal)
-        sigma = (self.noise_base + self.noise_scale * np.abs(h)) * self.noise_gain
+        sigma = self.noise_base + self.noise_scale * np.abs(h)
         noise = np.random.uniform(-sigma, sigma)
 
         a = h + noise
@@ -157,8 +142,8 @@ class RMHLAgent_Legenstein:
         """
         Apply EH update using *previous* state and activations and current reward.
 
-        Pass in the reward signal in the direction you want to maximize
-        (e.g., keep negative waiting-time costs negative).
+        You may want to flip the sign of reward outside this function if your
+        environment uses a cost (e.g. waiting time) instead of a reward.
         """
         if self.last_pre is None or self.last_a is None:
             # first step after reset before any action; nothing to update
@@ -174,32 +159,18 @@ class RMHLAgent_Legenstein:
         self.R_mean = (1.0 - self.mean_alpha) * self.R_mean + self.mean_alpha * reward
 
         delta_a = a_t - self.a_mean           # (a_i(t) - ā_i(t))
-        raw_delta_R = reward - self.R_mean    # (R(t) - R̄(t))
-        self.reward_var = (1.0 - self.reward_norm_beta) * self.reward_var + self.reward_norm_beta * (raw_delta_R ** 2)
-        delta_R = raw_delta_R / (np.sqrt(self.reward_var) + 1e-8)
-        if self.reward_clip is not None:
-            delta_R = np.clip(delta_R, -self.reward_clip, self.reward_clip)
+        delta_R = reward - self.R_mean        # (R(t) - R̄(t))
 
         # Outer product x_j * delta_a_i gives Hebbian term; scale by delta_R
         hebb = np.outer(x_t, delta_a) * delta_R
-        hebb_update = self.lr * hebb
-        if self.max_update_norm is not None:
-            upd_norm = np.linalg.norm(hebb_update)
-            if upd_norm > self.max_update_norm:
-                hebb_update *= self.max_update_norm / (upd_norm + 1e-8)
 
-        self.W += hebb_update
-        if self.weight_decay and not self.normalize_weights:
-            self.W *= 1.0 - self.weight_decay
+        self.W += self.lr * hebb
 
         # Optional L2 normalization per action column (Eq. 20 analogue)
         if self.normalize_weights:
             norms = np.linalg.norm(self.W, axis=0, keepdims=True)
             norms = np.maximum(norms, 1e-8)
             self.W /= norms
-
-        # Slowly anneal internal noise to shift from exploration to exploitation
-        self.noise_gain = max(self.min_noise_gain, self.noise_gain * self.noise_decay)
 
         # Move to next state
         self.state = next_state

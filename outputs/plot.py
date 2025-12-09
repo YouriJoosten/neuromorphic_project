@@ -55,58 +55,89 @@ def plot_df(df, color, xaxis, yaxis, ma=1, label=""):
     plt.fill_between(x, mean + std, mean - std, alpha=0.25, color=color, rasterized=True)
 
 
-def plot_episode_summary(combined_df, ma=5, out_folder: Path = None):
-    """Aggregate per-episode waiting-time metrics and plot them (sum and mean)."""
+def plot_episode_summary(combined_df, ma=5, out_folder: Path = None, use_delta_waiting: bool = False):
+    """Aggregate per-episode waiting-time metrics and plot them (sum and mean).
+
+    If use_delta_waiting=True, we first compute the per-step difference of
+    system_total_waiting_time *per episode* and aggregate those deltas.
+    This is closer to the shaped reward (-Δwaiting) often used in RL.
+    """
     if "episode" not in combined_df.columns:
         raise ValueError("combined dataframe must contain an 'episode' column to create episode summary.")
 
     combined_df["episode"] = combined_df["episode"].astype(int)
-    agg = combined_df.groupby("episode").agg(
-        steps=("step", "count"),
-        mean_waiting=("system_mean_waiting_time", "mean"),
-        sum_waiting=("system_total_waiting_time", "sum"),
-        max_waiting=("system_total_waiting_time", "max"),
-    )
+
+    # ---- optionally compute per-step delta of total waiting time ----
+    df = combined_df.sort_values(["episode", "step"]).copy()
+    if use_delta_waiting:
+        # per-episode difference of total waiting time
+        df["delta_total_wait"] = df.groupby("episode")["system_total_waiting_time"].diff().fillna(0.0)
+
+        agg = df.groupby("episode").agg(
+            steps=("step", "count"),
+            mean_waiting=("delta_total_wait", "mean"),
+            sum_waiting=("delta_total_wait", "sum"),
+            max_waiting=("delta_total_wait", "max"),
+        )
+        ylabel_sum = "sum Δ system_total_waiting_time"
+        ylabel_mean = "mean Δ system_total_waiting_time"
+        sum_label = "sum_delta_waiting"
+        mean_label = "mean_delta_waiting"
+    else:
+        agg = df.groupby("episode").agg(
+            steps=("step", "count"),
+            mean_waiting=("system_mean_waiting_time", "mean"),
+            sum_waiting=("system_total_waiting_time", "sum"),
+            max_waiting=("system_total_waiting_time", "max"),
+        )
+        ylabel_sum = "sum system_total_waiting_time"
+        ylabel_mean = "system_mean_waiting_time"
+        sum_label = "sum_waiting"
+        mean_label = "mean_waiting"
+
     agg = agg.reset_index()
 
     # smoothing
     roll = lambda arr: moving_average(arr, ma) if ma > 1 else arr
 
-    # sum_waiting plot
+    # ---- sum_waiting / sum_delta_waiting plot ----
     plt.figure(figsize=(9, 4))
-    plt.plot(agg["episode"], agg["sum_waiting"], alpha=0.3, label="sum_waiting")
+    plt.plot(agg["episode"], agg["sum_waiting"], alpha=0.3, label=sum_label)
     sm = roll(agg["sum_waiting"].values)
     x_sm = agg["episode"].values
     if len(sm) < len(x_sm):  # adjust x for 'same' convolution length
         offset = (len(x_sm) - len(sm)) // 2
         x_sm = x_sm[offset : offset + len(sm)]
-    plt.plot(x_sm, sm, label=f"sum_waiting (ma={ma})")
+    plt.plot(x_sm, sm, label=f"{sum_label} (ma={ma})")
     plt.xlabel("episode")
-    plt.ylabel("sum system_total_waiting_time")
+    plt.ylabel(ylabel_sum)
     plt.legend()
     plt.grid(True)
     if out_folder:
-        plt.savefig(out_folder / "episode_sum_waiting.png", dpi=150)
+        fname = "episode_sum_delta_waiting.png" if use_delta_waiting else "episode_sum_waiting.png"
+        plt.savefig(out_folder / fname, dpi=150)
     plt.tight_layout()
 
-    # mean_waiting plot
+    # ---- mean_waiting / mean_delta_waiting plot ----
     plt.figure(figsize=(9, 4))
-    plt.plot(agg["episode"], agg["mean_waiting"], alpha=0.3, label="mean_waiting")
+    plt.plot(agg["episode"], agg["mean_waiting"], alpha=0.3, label=mean_label)
     sm2 = roll(agg["mean_waiting"].values)
     x_sm2 = agg["episode"].values
     if len(sm2) < len(x_sm2):
         offset = (len(x_sm2) - len(sm2)) // 2
         x_sm2 = x_sm2[offset : offset + len(sm2)]
-    plt.plot(x_sm2, sm2, label=f"mean_waiting (ma={ma})")
+    plt.plot(x_sm2, sm2, label=f"{mean_label} (ma={ma})")
     plt.xlabel("episode")
-    plt.ylabel("system_mean_waiting_time")
+    plt.ylabel(ylabel_mean)
     plt.legend()
     plt.grid(True)
     if out_folder:
-        plt.savefig(out_folder / "episode_mean_waiting.png", dpi=150)
+        fname = "episode_mean_delta_waiting.png" if use_delta_waiting else "episode_mean_waiting.png"
+        plt.savefig(out_folder / fname, dpi=150)
     plt.tight_layout()
 
     return agg
+
 
 
 def plot_training_log(training_log_path: Path, ma=5, out_folder: Path = None):
@@ -176,6 +207,15 @@ if __name__ == "__main__":
     prs = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, description="""Plot Traffic Signal Metrics"""
     )
+    prs.add_argument(
+    "--delta-waiting",
+    action="store_true",
+    help=(
+        "When used with --episode-summary, aggregate per-episode statistics on the "
+        "per-step difference of system_total_waiting_time instead of the raw value. "
+        "This approximates the shaped RL reward and makes learning trends clearer."
+    ),
+)
     prs.add_argument("-f", nargs="+", required=True, help="Measures files (glob prefix allowed)\n")
     prs.add_argument("-l", nargs="+", default=None, help="File's legends\n")
     prs.add_argument("-t", type=str, default="", help="Plot title\n")
@@ -218,7 +258,12 @@ if __name__ == "__main__":
                 # save outputs in same folder as first matched file
                 first_match = glob.glob(file + "*")[0]
                 out_folder = Path(first_match).resolve().parent
-                agg = plot_episode_summary(main_df, ma=args.ma, out_folder=out_folder)
+                agg = plot_episode_summary(
+                    main_df,
+                    ma=args.ma,
+                    out_folder=out_folder,
+                    use_delta_waiting=args.delta_waiting,
+                )
 
                 # try to find training_log automatically if not provided
                 if args.training_log:

@@ -1,7 +1,4 @@
-"""Epsilon Greedy Exploration Strategy."""
-
 import numpy as np
-
 
 class EpsilonGreedy:
     """Epsilon Greedy Exploration Strategy."""
@@ -13,15 +10,35 @@ class EpsilonGreedy:
         self.min_epsilon = min_epsilon
         self.decay = decay
 
+    def _decay(self):
+        self.epsilon = max(self.epsilon * self.decay, self.min_epsilon)
+
     def choose(self, q_table, state, action_space):
-        """Choose action based on epsilon greedy strategy."""
+        """
+        Classic epsilon-greedy for a Q-table:
+        q_table[state] is a 1D array of action-values.
+        """
         if np.random.rand() < self.epsilon:
             action = int(action_space.sample())
         else:
-            action = np.argmax(q_table[state])
+            action = int(np.argmax(q_table[state]))
+        self._decay()
+        return action
 
-        self.epsilon = max(self.epsilon * self.decay, self.min_epsilon)
-        # print(self.epsilon)
+    def choose_values(self, action_values, action_space=None):
+        """
+        Epsilon-greedy when you already have a 1D array of action-values.
+        Used by RMHLAgent.act().
+        """
+        if np.random.rand() < self.epsilon:
+            if action_space is not None:
+                action = int(action_space.sample())
+            else:
+                action = int(np.random.randint(len(action_values)))
+        else:
+            action = int(np.argmax(action_values))
+
+        self._decay()
         return action
 
     def reset(self):
