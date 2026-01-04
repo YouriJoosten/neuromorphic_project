@@ -2,9 +2,9 @@ import argparse
 import os
 import sys
 from datetime import datetime
-from pathlib import Path
-import glob
+import matplotlib.pyplot as plt
 import pandas as pd
+import random
 import numpy as np
 
 if "SUMO_HOME" in os.environ:
@@ -13,234 +13,215 @@ if "SUMO_HOME" in os.environ:
 else:
     sys.exit("Please declare the environment variable 'SUMO_HOME'")
 
-project_src = os.path.join(os.path.dirname(__file__), "..")
-project_src = os.path.abspath(project_src)
-sys.path.insert(0, project_src)
-
 from sumo_rl import SumoEnvironment
 from sumo_rl.agents import RMHLAgent
 from sumo_rl.exploration import EpsilonGreedy
 
 
-def main():
+if __name__ == "__main__":
     prs = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description="RMHL Single-Intersection (2-way) experiment",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, description="""Q-Learning Single-Intersection"""
     )
     prs.add_argument(
         "-route",
         dest="route",
         type=str,
-        default="src/sumo_rl/nets/2way-single-intersection/single-intersection-vhvh.rou.xml",
-        help="Route definition xml file.",
+        default="nets/2way-single-intersection/single-intersection-vhvh.rou.xml",
+        help="Route definition xml file.\n",
     )
-    prs.add_argument("-a", dest="alpha", type=float, default=0.01, help="Learning rate (Hebbian).")
-    prs.add_argument("-g", dest="gamma", type=float, default=0.99, help="Gamma discount rate.")
-    prs.add_argument("-e", dest="epsilon", type=float, default=0.05, help="Epsilon.")
-    prs.add_argument("-me", dest="min_epsilon", type=float, default=0.01, help="Minimum epsilon.")
-    prs.add_argument("-d", dest="decay", type=float, default=0.995, help="Epsilon decay.")
-    prs.add_argument("-mingreen", dest="min_green", type=int, default=10, help="Minimum green time.")
-    prs.add_argument("-maxgreen", dest="max_green", type=int, default=30, help="Maximum green time.")
-    prs.add_argument("-gui", action="store_true", default=False, help="Run with visualization on SUMO.")
-    prs.add_argument("-fixed", action="store_true", default=False, help="Run with fixed timing traffic signals.")
-    prs.add_argument("-s", dest="seconds", type=int, default=1000, help="Number of simulation seconds per episode.")
+    prs.add_argument("-a", dest="alpha", type=float, default=0.01, required=False, help="Alpha learning rate.\n")
+    prs.add_argument("-g", dest="gamma", type=float, default=0.99, required=False, help="Gamma discount rate.\n")
+    prs.add_argument("-e", dest="epsilon", type=float, default=0.05, required=False, help="Epsilon.\n")
+    prs.add_argument("-me", dest="min_epsilon", type=float, default=0.01, required=False, help="Minimum epsilon.\n")
+    prs.add_argument("-d", dest="decay", type=float, default=0.995, required=False, help="Epsilon decay.\n")
+    prs.add_argument("-mingreen", dest="min_green", type=int, default=10, required=False, help="Minimum green time.\n")
+    prs.add_argument("-maxgreen", dest="max_green", type=int, default=30, required=False, help="Maximum green time.\n")
+    prs.add_argument("-gui", action="store_true", default=True, help="Run with visualization on SUMO.\n")
+    prs.add_argument("-fixed", action="store_true", default=False, help="Run with fixed timing traffic signals.\n")
+    prs.add_argument("-s", dest="seconds", type=int, default=1000, required=False, help="Number of simulation seconds.\n")
     prs.add_argument(
         "-r",
         dest="reward",
         type=str,
         default="wait",
-        help="Reward function: [-r queue] for average queue reward or [-r wait] for waiting time reward.",
+        required=False,
+        help="Reward function: [-r queue] for average queue reward or [-r wait] for waiting time reward.\n",
     )
-    prs.add_argument("-runs", dest="runs", type=int, default=50, help="Number of episodes.")
-    prs.add_argument("-v", action="store_true", default=False, help="Verbose: print per-step reward info.")
+    
+    prs.add_argument("-runs", dest="runs", type=int, default=2, help="Number of runs.\n") ###### EPISODE CHANGE HERE #####
+    prs.add_argument("-seed",dest="seed",type=int,default=42,help="Random seed for reproducibility.\n",)
+
     args = prs.parse_args()
 
-    # ---------- output paths ----------
-    experiment_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    base_dir = Path("outputs/2way-single-intersection")
-    exp_dir = base_dir / f"RMHL_{experiment_time}_alpha{args.alpha}_gamma{args.gamma}_eps{args.epsilon}_decay{args.decay}_reward{args.reward}"
-    exp_dir.mkdir(parents=True, exist_ok=True)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    os.environ["PYTHONHASHSEED"] = str(args.seed)
 
-    out_prefix = exp_dir / "ep"  # env will use this as prefix for its CSVs
 
-    # training log (same logic / columns as PG script)
-    training_log_path = exp_dir / "training_log.csv"
-    training_log_cols = [
-        "run",
-        "agent",
-        "episode_return",
-        "discounted_return",
-        "mean_return",
-        "R_bar",               # here: RMHL reward_baseline
-        "theta_norm",          # here: ||W||
-        "theta_change",        # placeholder (0.0 unless you track it in RMHLAgent)
-        "theta_update_norm",   # placeholder
-    ]
-    pd.DataFrame(columns=training_log_cols).to_csv(training_log_path, index=False)
+    experiment_time = str(datetime.now()).replace(":", "-").split(".")[0]
+    out_csv = f"outputs/2way-single-intersection/{experiment_time}_alpha{args.alpha}_gamma{args.gamma}_eps{args.epsilon}_decay{args.decay}_reward{args.reward}"
 
-    # ---------- environment ----------
     env = SumoEnvironment(
-        net_file="src/sumo_rl/nets/2way-single-intersection/single-intersection.net.xml",
-        route_file=args.route,
-        out_csv_name=str(out_prefix),
+        net_file="C:/Users/jjfva/Documents/Radboud/Neuromorphic Computing/Project/sumo-rl/sumo_rl/nets/2way-single-intersection/single-intersection.net.xml",
+        route_file="C:/Users/jjfva/Documents/Radboud/Neuromorphic Computing/Project/sumo-rl/sumo_rl/nets/2way-single-intersection/single-intersection-gen.rou.xml",
+        out_csv_name=out_csv,
         use_gui=args.gui,
         num_seconds=args.seconds,
         min_green=args.min_green,
         max_green=args.max_green,
         sumo_warnings=False,
-        reward_fn="total-waiting-time",  # you can swap based on args.reward if desired
+        reward_fn = "total-waiting-time",
+        sumo_seed = args.seed,
     )
-
-    # ---------- create RMHL agents ONCE ----------
+    
     initial_states = env.reset()
     rl_agents = {
-        ts: RMHLAgent(
-            starting_state=initial_states[ts],
-            state_space=env.observation_space,
-            action_space=env.action_space,
-            lr=args.alpha,
-            gamma=args.gamma,
-            exploration_strategy=EpsilonGreedy(
-                initial_epsilon=args.epsilon,
-                min_epsilon=args.min_epsilon,
-                decay=args.decay,
-            ),
-        )
-        for ts in env.ts_ids
-    }
+            ts: RMHLAgent(
+                starting_state=initial_states[ts],    
+                state_space=env.observation_space,
+                action_space=env.action_space,
+                lr=args.alpha,
+                gamma=args.gamma, 
+                exploration_strategy=EpsilonGreedy(initial_epsilon=args.epsilon, min_epsilon=args.min_epsilon, decay=args.decay),
+            )
+            for ts in env.ts_ids
+        }
+    
+    # Metrics amount of vehicles
+    prev_departed = 0
+    prev_arrived = 0
+    prev_teleported = 0
 
-    # ---------- run episodes ----------
     for run in range(1, args.runs + 1):
+        run_seed = args.seed + run
+
+        random.seed(run_seed)
+        np.random.seed(run_seed)
+
+        env.sumo_seed = run_seed
+
         print(f"Starting run {run}/{args.runs}...")
-        current_states = env.reset()
+
+        s = env.reset()
         done = {"__all__": False}
 
-        episode_reward = 0.0
-        episode_steps = 0
+        # ==========================
+        # Traffic Light Phase Tracking
+        # ==========================
+        prev_departed = 0
+        prev_arrived = 0
+        prev_teleported = 0
 
-        # per-agent reward history
+        prev_phase = None
+        phase_start_step = 0
+        phase_durations = {}
+
+        # ==========================
+
+        # Tracking performance
         episode_rewards = {ts: [] for ts in rl_agents.keys()}
+        step_metrics = []
 
         if args.fixed:
-            # no learning, just fixed-timing control
             while not done["__all__"]:
                 _, _, done, _ = env.step({})
         else:
             while not done["__all__"]:
-                # ACT
                 actions = {ts: rl_agents[ts].act() for ts in rl_agents.keys()}
 
-                # STEP
-                next_states, rewards, done, _ = env.step(action=actions)
+                s, r, done, _ = env.step(action=actions)
+                
+                # ==========================
+                # Traffic Light Phase Tracking
+                # ==========================
 
-                if args.v:
-                    all_r = list(rewards.values())
-                    print(
-                        "reward:", rewards,
-                        " mean_wait:", {k: next_states[k].get("mean_waiting_time", "?") for k in next_states},
-                        " min_step_r:", min(all_r),
-                        " max_step_r:", max(all_r),
-                    )
+                state_string = env.sumo.trafficlight.getRedYellowGreenState(env.ts_ids[0])
+                ns_lanes = state_string[0:4]   # example: first 4 chars = north-south
+                ew_lanes = state_string[4:8]   # example: next 4 chars = east-west
 
-                # LEARN
-                for ts, agent in rl_agents.items():
-                    done_flag = done.get(ts, done["__all__"])
-                    r_ts = float(rewards.get(ts, 0.0))
-                    episode_rewards[ts].append(r_ts)
+                if 'G' in ns_lanes and 'G' not in ew_lanes:
+                    simple_phase = "NS_GREEN"
+                elif 'G' in ew_lanes and 'G' not in ns_lanes:
+                    simple_phase = "EW_GREEN"
+                elif 'G' in ns_lanes and 'G' in ew_lanes:
+                    simple_phase = "BOTH_GREEN"  # if possible in your TL program
+                elif 'y' in state_string.lower():
+                    simple_phase = "YELLOW"
+                else:
+                    simple_phase = "ALL_RED"
 
-                    # pass raw next state; RMHLAgent handles its own encoding/normalization
-                    agent.learn(
-                        next_state=next_states[ts],
-                        reward=-r_ts,
-                        done=done_flag,
-                    )
+                if prev_phase is None:
+                    prev_phase = simple_phase
+                    phase_start_step = env.sim_step
 
-                episode_reward += float(np.mean(list(rewards.values())))
-                episode_steps += 1
-                current_states = next_states
+                elif simple_phase != prev_phase:
+                    # Phase switch detected
+                    duration = env.sim_step - phase_start_step
 
-        # ---------- per-episode logging to training_log.csv ----------
-        for ts, agent in rl_agents.items():
-            rewards_list = episode_rewards[ts]
-            if rewards_list:
-                episode_return = float(np.sum(rewards_list))
-                discounted_return = float(np.sum([(args.gamma ** i) * r for i, r in enumerate(rewards_list)]))
-                mean_return = float(np.mean(rewards_list))
-            else:
-                episode_return = 0.0
-                discounted_return = 0.0
-                mean_return = 0.0
+                    if prev_phase not in phase_durations:
+                        phase_durations[prev_phase] = []
+                    phase_durations[prev_phase].append(duration)
 
-            # Map PG-style columns to RMHL agent quantities
-            R_bar = float(getattr(agent, "reward_baseline", 0.0))
-            theta_norm = float(np.linalg.norm(getattr(agent, "W", np.array(0.0))))
-            # If you later track W_prev and last_update, you can fill these realistically
-            theta_change = 0.0
-            theta_update_norm = 0.0
+                    # Reset for new phase
+                    prev_phase = simple_phase
+                    phase_start_step = env.sim_step
 
-            log_row = {
-                "run": run,
-                "agent": ts,
-                "episode_return": episode_return,
-                "discounted_return": discounted_return,
-                "mean_return": mean_return,
-                "R_bar": R_bar,
-                "theta_norm": theta_norm,
-                "theta_change": theta_change,
-                "theta_update_norm": theta_update_norm,
-            }
+                # ==========================
+                # ==========================
 
-            pd.DataFrame([log_row]).to_csv(training_log_path, mode="a", header=False, index=False)
-            print(
-                f"Episode {run} | agent={ts} | return={log_row['episode_return']:.3f} | "
-                f"G0={log_row['discounted_return']:.3f} | meanR={log_row['mean_return']:.3f} | "
-                f"R_bar={log_row['R_bar']:.3f} | ||W||={log_row['theta_norm']:.4f}"
-            )
+                row = {"step": env.sim_step}
 
-        avg_reward = episode_reward / max(episode_steps, 1)
-        print(f"Episode {run}: steps={episode_steps}, total_reward={episode_reward:.3f}, avg_reward={avg_reward:.4f}")
+                for agent_id in rl_agents.keys():
+                    rl_agents[agent_id].learn(next_state=s[agent_id],reward=r[agent_id])
+                    
+                    # Store rewards
+                    row[f"{agent_id}_reward"] = r[agent_id]
+                    row[f"{agent_id}_acc_reward"] = rl_agents[agent_id].acc_reward
 
-        # save SUMO per-episode CSVs
-        env.save_csv(str(out_prefix), run)
+                # SUMO reward metrics
+                row['episode_total_reward'] = sum(r.values())
 
-    env.close()
+                # SUMO throughput metrics
+                departed = env.sumo.simulation.getDepartedNumber() - prev_departed
+                arrived = env.sumo.simulation.getArrivedNumber() - prev_arrived
+                teleported = env.sumo.simulation.getEndingTeleportNumber() - prev_teleported
 
-    # ---------- combine per-episode CSVs into one continuous file ----------
-    pattern = str(exp_dir / "ep*_conn*_ep*.csv")
-    episode_files = sorted(glob.glob(pattern))
+                prev_departed = env.sumo.simulation.getDepartedNumber()
+                prev_arrived = env.sumo.simulation.getArrivedNumber()
+                prev_teleported = env.sumo.simulation.getEndingTeleportNumber()
 
-    all_dfs = []
-    max_step_per_episode = None
-    step_size = None
+                row['departed_this_step'] = departed
+                row['arrived_this_step'] = arrived
+                row['teleported_this_step'] = teleported
 
-    for episode_idx, f in enumerate(episode_files):
-        df = pd.read_csv(f)
+                
+                step_metrics.append(row)
 
-        if "step" not in df.columns:
-            raise ValueError(f"CSV {f} has no 'step' column!")
+        # ==========================
+        # Traffic Light Phase Tracking
+        # ==========================
 
-        # infer step_size and max_step_per_episode from the first file
-        if max_step_per_episode is None:
-            step_values = sorted(df["step"].unique())
-            if len(step_values) >= 2:
-                step_size = step_values[1] - step_values[0]
-            else:
-                step_size = 1  # fallback
-            max_step_per_episode = df["step"].max()
+        summary_rows = []
+        for phase, durations in phase_durations.items():
+            summary_rows.append({
+                "episode": run,
+                "phase": phase,
+                "avg_duration": sum(durations) / len(durations),
+                "num_switches": len(durations)
+            })
 
-        # shift steps so each episode is contiguous in time
-        df["step"] = df["step"] + episode_idx * (max_step_per_episode + step_size)
-        df["episode"] = episode_idx
-        all_dfs.append(df)
+        summary_df = pd.DataFrame(summary_rows)
+        summary_df.to_csv(f"{out_csv}_trafficlights_ep{run}.csv", index=False)
 
-    if all_dfs:
-        combined = pd.concat(all_dfs, ignore_index=True)
-        combined_path = exp_dir / "combined_episodes_continuous.csv"
-        combined.to_csv(combined_path, index=False)
-        print(f"Continuous combined CSV saved to: {combined_path}")
-    else:
-        print("No episode CSVs found to combine.")
+        # ==========================
+        # ==========================
+
+        df_metrics = pd.DataFrame(step_metrics)
+        df_metrics['episode_total_acc_reward'] = df_metrics[[f"{ts}_acc_reward" for ts in rl_agents.keys()]].sum(axis=1)
+        df_metrics.to_csv(f"{out_csv}_ep{run}.csv", index=False)
+
+        env.save_csv(out_csv, run)
+        env.close()
 
 
-if __name__ == "__main__":
-    main()
+
