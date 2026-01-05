@@ -18,7 +18,7 @@ if __name__ == "__main__":
     gamma = 0.99
     decay = 1
     runs = 1
-    episodes = 4
+    episodes = 10
     seed = 42
 
     random.seed(seed)
@@ -31,8 +31,8 @@ if __name__ == "__main__":
     env = SumoEnvironment(
         net_file="C:/Users/jjfva/Documents/Radboud/Neuromorphic Computing/Project/sumo-rl/sumo_rl/nets/RESCO/grid4x4/grid4x4.net.xml",
         route_file="C:/Users/jjfva/Documents/Radboud/Neuromorphic Computing/Project/sumo-rl/sumo_rl/nets/RESCO/grid4x4/grid4x4_1.rou.xml",
-        use_gui=True,
-        num_seconds=400,
+        use_gui=False,
+        num_seconds=100,
         min_green=5,
         delta_time=5,
         sumo_seed=seed
@@ -58,10 +58,14 @@ if __name__ == "__main__":
         }
 
         for episode in range(1, episodes + 1):
-            if episode != 1:
-                initial_states = env.reset()
-                for ts in initial_states.keys():
-                    rl_agents[ts].state = env.encode(initial_states[ts], ts)
+            initial_states = env.reset()
+            for ts in rl_agents.keys():
+                agent = rl_agents[ts]
+                agent.state = env.encode(initial_states[ts], ts)  # reset state
+                agent.acc_reward = 0.0                            # reset accumulated reward
+                agent.eligibility[:] = 0                          # reset eligibility traces
+                agent.reward_baseline = 0.0                       # reset baseline for RMHL
+                agent.exploration.epsilon = 0.05                  # reset exploration if needed
 
             # -----------------------------
             # Initialize tracking

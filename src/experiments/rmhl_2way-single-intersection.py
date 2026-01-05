@@ -36,9 +36,9 @@ if __name__ == "__main__":
     prs.add_argument("-d", dest="decay", type=float, default=0.995, required=False, help="Epsilon decay.\n")
     prs.add_argument("-mingreen", dest="min_green", type=int, default=10, required=False, help="Minimum green time.\n")
     prs.add_argument("-maxgreen", dest="max_green", type=int, default=30, required=False, help="Maximum green time.\n")
-    prs.add_argument("-gui", action="store_true", default=True, help="Run with visualization on SUMO.\n")
+    prs.add_argument("-gui", action="store_true", default=False, help="Run with visualization on SUMO.\n")
     prs.add_argument("-fixed", action="store_true", default=False, help="Run with fixed timing traffic signals.\n")
-    prs.add_argument("-s", dest="seconds", type=int, default=1000, required=False, help="Number of simulation seconds.\n")
+    prs.add_argument("-s", dest="seconds", type=int, default=100, required=False, help="Number of simulation seconds.\n")
     prs.add_argument(
         "-r",
         dest="reward",
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         help="Reward function: [-r queue] for average queue reward or [-r wait] for waiting time reward.\n",
     )
     
-    prs.add_argument("-runs", dest="runs", type=int, default=2, help="Number of runs.\n") ###### EPISODE CHANGE HERE #####
+    prs.add_argument("-runs", dest="runs", type=int, default=10, help="Number of runs.\n") ###### EPISODE CHANGE HERE #####
     prs.add_argument("-seed",dest="seed",type=int,default=42,help="Random seed for reproducibility.\n",)
 
     args = prs.parse_args()
@@ -74,18 +74,6 @@ if __name__ == "__main__":
         sumo_seed = args.seed,
     )
     
-    initial_states = env.reset()
-    rl_agents = {
-            ts: RMHLAgent(
-                starting_state=initial_states[ts],    
-                state_space=env.observation_space,
-                action_space=env.action_space,
-                lr=args.alpha,
-                gamma=args.gamma, 
-                exploration_strategy=EpsilonGreedy(initial_epsilon=args.epsilon, min_epsilon=args.min_epsilon, decay=args.decay),
-            )
-            for ts in env.ts_ids
-        }
     
     # Metrics amount of vehicles
     prev_departed = 0
@@ -93,11 +81,23 @@ if __name__ == "__main__":
     prev_teleported = 0
 
     for run in range(1, args.runs + 1):
-        run_seed = args.seed + run
 
+        initial_states = env.reset()
+        rl_agents = {
+                ts: RMHLAgent(
+                    starting_state=initial_states[ts],    
+                    state_space=env.observation_space,
+                    action_space=env.action_space,
+                    lr=args.alpha,
+                    gamma=args.gamma, 
+                    exploration_strategy=EpsilonGreedy(initial_epsilon=args.epsilon, min_epsilon=args.min_epsilon, decay=args.decay),
+                )
+                for ts in env.ts_ids
+            }
+        
+        run_seed = args.seed + run
         random.seed(run_seed)
         np.random.seed(run_seed)
-
         env.sumo_seed = run_seed
 
         print(f"Starting run {run}/{args.runs}...")
@@ -221,7 +221,7 @@ if __name__ == "__main__":
         df_metrics.to_csv(f"{out_csv}_ep{run}.csv", index=False)
 
         env.save_csv(out_csv, run)
-        env.close()
+    env.close()
 
 
 
