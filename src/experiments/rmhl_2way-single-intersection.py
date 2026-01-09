@@ -39,16 +39,9 @@ if __name__ == "__main__":
     prs.add_argument("-gui", action="store_true", default=False, help="Run with visualization on SUMO.\n")
     prs.add_argument("-fixed", action="store_true", default=False, help="Run with fixed timing traffic signals.\n")
     prs.add_argument("-s", dest="seconds", type=int, default=100, required=False, help="Number of simulation seconds.\n")
-    prs.add_argument(
-        "-r",
-        dest="reward",
-        type=str,
-        default="wait",
-        required=False,
-        help="Reward function: [-r queue] for average queue reward or [-r wait] for waiting time reward.\n",
-    )
+    prs.add_argument("-r",dest="reward",type=str,default="wait",required=False,help="Reward function: [-r queue] for average queue reward or [-r wait] for waiting time reward.\n",)
     
-    prs.add_argument("-runs", dest="runs", type=int, default=10, help="Number of runs.\n") ###### EPISODE CHANGE HERE #####
+    prs.add_argument("-runs", dest="runs", type=int, default=100, help="Number of runs.\n") ###### EPISODE CHANGE HERE #####
     prs.add_argument("-seed",dest="seed",type=int,default=42,help="Random seed for reproducibility.\n",)
 
     args = prs.parse_args()
@@ -74,27 +67,26 @@ if __name__ == "__main__":
         sumo_seed = args.seed,
     )
     
-    
     # Metrics amount of vehicles
     prev_departed = 0
     prev_arrived = 0
     prev_teleported = 0
 
-    for run in range(1, args.runs + 1):
-
-        initial_states = env.reset()
-        rl_agents = {
-                ts: RMHLAgent(
-                    starting_state=initial_states[ts],    
-                    state_space=env.observation_space,
-                    action_space=env.action_space,
-                    lr=args.alpha,
-                    gamma=args.gamma, 
-                    exploration_strategy=EpsilonGreedy(initial_epsilon=args.epsilon, min_epsilon=args.min_epsilon, decay=args.decay),
-                )
-                for ts in env.ts_ids
-            }
+    initial_states = env.reset()
+    rl_agents = {
+            ts: RMHLAgent(
+                starting_state=initial_states[ts],    
+                state_space=env.observation_space,
+                action_space=env.action_space,
+                lr=args.alpha,
+                gamma=args.gamma, 
+                exploration_strategy=EpsilonGreedy(initial_epsilon=args.epsilon, min_epsilon=args.min_epsilon, decay=args.decay),
+            )
+            for ts in env.ts_ids
+    }
         
+
+    for run in range(1, args.runs + 1):
         run_seed = args.seed + run
         random.seed(run_seed)
         np.random.seed(run_seed)
@@ -103,6 +95,12 @@ if __name__ == "__main__":
         print(f"Starting run {run}/{args.runs}...")
 
         s = env.reset()
+        s = env.reset()
+        for ts in rl_agents:
+            rl_agents[ts].state = s[ts]      
+            rl_agents[ts].eligibility[:] = 0 
+            rl_agents[ts].acc_reward = 0
+
         done = {"__all__": False}
 
         # ==========================

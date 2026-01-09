@@ -64,8 +64,6 @@ if __name__ == "__main__":
                 agent.state = env.encode(initial_states[ts], ts)  # reset state
                 agent.acc_reward = 0.0                            # reset accumulated reward
                 agent.eligibility[:] = 0                          # reset eligibility traces
-                agent.reward_baseline = 0.0                       # reset baseline for RMHL
-                agent.exploration.epsilon = 0.05                  # reset exploration if needed
 
             # -----------------------------
             # Initialize tracking

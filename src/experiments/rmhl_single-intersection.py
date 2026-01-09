@@ -85,9 +85,7 @@ if __name__ == "__main__":
             agent = rl_agents[ts]
             agent.state = states[ts]
             agent.eligibility[:] = 0
-            agent.acc_reward = 0.0              
-            agent.reward_baseline = 0.0   
-            agent.exploration.epsilon = args.epsilon       
+            agent.acc_reward = 0.0                       
         ###
 
         run_seed = args.seed + run
