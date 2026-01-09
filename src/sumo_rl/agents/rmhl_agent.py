@@ -1,4 +1,3 @@
-"""Q-learning Agent class."""
 
 from sumo_rl.exploration.epsilon_greedy import EpsilonGreedy
 import numpy as np 
@@ -6,7 +5,7 @@ import numpy as np
 class RMHLAgent:
     """Reward-Modulated Hebbian Agent class."""
 
-    def __init__(self, starting_state, state_space, action_space, lr = 0.01, gamma=0.99, exploration_strategy=EpsilonGreedy()):
+    def __init__(self, starting_state, state_space, action_space, lr = 0.0001, gamma=0.99, exploration_strategy=EpsilonGreedy()):
         """Initialize Q-learning agent."""
         self.state = starting_state
         self.state_space = state_space
@@ -31,7 +30,8 @@ class RMHLAgent:
     # Normalization addition
     def encode(self, state):
         x = np.array(state, dtype=float)
-        return x / self.state_scale
+        self.state_scale = np.maximum(self.state_scale, np.abs(x))
+        return x / (self.state_scale + 1e-6) 
     
     def get_action_values(self, state_encoded):
         return state_encoded @ self.W
@@ -53,26 +53,19 @@ class RMHLAgent:
         reward_mod = reward + self.gamma * np.max(self.get_action_values(self.encode(next_state))) - self.reward_baseline
         self.reward_baseline += self.baseline_alpha * reward_mod
 
-        # # Hebbian outer product * reward modulation
-        # hebbian_update = self.lr * reward_mod * np.outer(pre, post)
-        # self.W += hebbian_update
-
-        # ===============================
-        # Update eligibility trace TESTTTTTTTT
-        # ===============================
         lambda_ = 0.2  # trace decay factor for how long we keep past activity
         self.eligibility = self.gamma * lambda_ * self.eligibility + np.outer(pre, post)
         
         # Hebbian update using eligibility trace
         hebbian_update = self.lr * reward_mod * self.eligibility
         self.W += hebbian_update
-        # ===============================
 
         # Weight clipping to prevent runaway
-        self.W = np.clip(self.W, -5, 5)
-        # Optional small decay:
-        self.W *= 0.999
+        self.W = np.clip(self.W, -10, 10)
+        self.W *= 0.99
 
         # Move to next state
         self.state = next_state
         self.acc_reward += reward
+
+        print("||W||:", np.linalg.norm(self.W))
